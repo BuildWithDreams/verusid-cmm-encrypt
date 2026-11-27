@@ -1,7 +1,7 @@
 //! WebAssembly bindings for [`verusid_cmm_encrypt`].
 //!
-//! Exposes a single JS-callable function, `encryptPublicDecrypt`, that wraps
-//! [`verusid_cmm_encrypt::encrypt_public_decrypt`]. Randomness is sourced from
+//! Binds public-decrypt envelope encryption and raw Sapling recipient
+//! encryption for the package's TypeScript wrapper. Randomness is sourced from
 //! `rand_core::OsRng`, which on `wasm32-unknown-unknown` routes through the
 //! Web Crypto API (browser) or `node:crypto` (Node) via `getrandom`'s `js`
 //! feature.
@@ -39,7 +39,8 @@
 use js_sys::{Array, Object, Reflect, Uint8Array};
 use rand_core::OsRng;
 use verusid_cmm_encrypt::{
-    encrypt_public_decrypt, EncryptError, EncryptRequest, EncryptResult,
+    encrypt_for_recipient, encrypt_public_decrypt, is_valid_recipient_epk, EncryptError,
+    EncryptRequest, EncryptResult, RecipientEncryptError, MAX_RECIPIENT_PLAINTEXT_BYTES,
 };
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -69,6 +70,12 @@ export interface EncryptPublicDecryptResult {
     ephemeralDiversifier: Uint8Array;
     ephemeralPkD: Uint8Array;
 }
+
+export interface RecipientCiphertextBytes {
+    epk: Uint8Array;
+    ciphertext: Uint8Array;
+    ssk?: Uint8Array;
+}
 "#;
 
 #[wasm_bindgen]
@@ -81,6 +88,9 @@ extern "C" {
     /// interface; the binding constructs it via [`js_sys::Reflect::set`].
     #[wasm_bindgen(typescript_type = "EncryptPublicDecryptResult")]
     pub type JsEncryptResult;
+    /// Raw recipient result consumed by the TypeScript wrapper.
+    #[wasm_bindgen(typescript_type = "RecipientCiphertextBytes")]
+    pub type JsRecipientCiphertext;
 }
 
 /// Encrypt `request.plaintext` into a `flags:13` public-decrypt cmm entry and
@@ -121,6 +131,63 @@ pub fn encrypt_public_decrypt_js(request: JsEncryptRequest) -> Result<JsEncryptR
     let js_value = build_result_object(&result)
         .map_err(|_| JsError::new("failed to construct result object"))?;
     Ok(js_value.unchecked_into::<JsEncryptResult>())
+}
+
+/// Encrypt raw bytes to a Sapling recipient and optionally return the SSK.
+#[wasm_bindgen(js_name = encryptRecipientBytes)]
+pub fn encrypt_recipient_bytes(
+    plaintext: Uint8Array,
+    d: Uint8Array,
+    pk_d: Uint8Array,
+    include_ssk: bool,
+) -> Result<JsRecipientCiphertext, JsValue> {
+    if plaintext.length() as usize > MAX_RECIPIENT_PLAINTEXT_BYTES {
+        return Err(recipient_error(RecipientEncryptError::InvalidInput));
+    }
+    if d.length() != 11 || pk_d.length() != 32 {
+        return Err(recipient_error(RecipientEncryptError::InvalidRecipient));
+    }
+    let encrypted = encrypt_for_recipient(&plaintext.to_vec(), &d.to_vec(), &pk_d.to_vec(), &mut OsRng)
+        .map_err(recipient_error)?;
+
+    let result = Object::new();
+    let mut fields = vec![
+        ("epk", &encrypted.epk[..]),
+        ("ciphertext", encrypted.ciphertext.as_slice()),
+    ];
+    if include_ssk {
+        fields.push(("ssk", &encrypted.ssk[..]));
+    }
+    for (name, bytes) in fields {
+        let set = Reflect::set(&result, &name.into(), &Uint8Array::from(bytes).into());
+        if !matches!(set, Ok(true)) {
+            return Err(recipient_error(RecipientEncryptError::EncryptFailed));
+        }
+    }
+    Ok(result.unchecked_into())
+}
+
+/// Check a candidate Sapling recipient key.
+#[wasm_bindgen(js_name = isValidRecipientEpkBytes)]
+pub fn is_valid_recipient_epk_bytes(pk_d: Uint8Array) -> bool {
+    pk_d.length() == 32 && is_valid_recipient_epk(&pk_d.to_vec())
+}
+
+fn recipient_error(error: RecipientEncryptError) -> JsValue {
+    let (code, message) = match error {
+        RecipientEncryptError::InvalidRecipient => {
+            ("INVALID_RECIPIENT", "Invalid Sapling diversifier or recipient key")
+        }
+        RecipientEncryptError::InvalidInput => {
+            ("INVALID_INPUT", "plaintext exceeds the 16368-byte limit")
+        }
+        RecipientEncryptError::EncryptFailed => ("ENCRYPT_FAILED", "Recipient encryption failed"),
+    };
+    let error = js_sys::Error::new(message);
+    let descriptor = Object::new();
+    Reflect::set(&descriptor, &"value".into(), &code.into()).ok();
+    Object::define_property(&error, &"code".into(), &descriptor);
+    error.into()
 }
 
 // --- Field readers ---------------------------------------------------------

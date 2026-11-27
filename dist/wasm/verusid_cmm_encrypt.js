@@ -18,6 +18,34 @@ function encryptPublicDecrypt(request) {
     return takeFromExternrefTable0(ret[0]);
 }
 exports.encryptPublicDecrypt = encryptPublicDecrypt;
+
+/**
+ * Encrypt raw bytes to a Sapling recipient and optionally return the SSK.
+ * @param {Uint8Array} plaintext
+ * @param {Uint8Array} d
+ * @param {Uint8Array} pk_d
+ * @param {boolean} include_ssk
+ * @returns {RecipientCiphertextBytes}
+ */
+function encryptRecipientBytes(plaintext, d, pk_d, include_ssk) {
+    const ret = wasm.encryptRecipientBytes(plaintext, d, pk_d, include_ssk);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+exports.encryptRecipientBytes = encryptRecipientBytes;
+
+/**
+ * Check a candidate Sapling recipient key.
+ * @param {Uint8Array} pk_d
+ * @returns {boolean}
+ */
+function isValidRecipientEpkBytes(pk_d) {
+    const ret = wasm.isValidRecipientEpkBytes(pk_d);
+    return ret !== 0;
+}
+exports.isValidRecipientEpkBytes = isValidRecipientEpkBytes;
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -71,6 +99,10 @@ function __wbg_get_imports() {
             const ret = arg0.crypto;
             return ret;
         },
+        __wbg_defineProperty_c42c661b4dea36ef: function(arg0, arg1, arg2) {
+            const ret = Object.defineProperty(arg0, arg1, arg2);
+            return ret;
+        },
         __wbg_getRandomValues_c44a50d8cfdaebeb: function() { return handleError(function (arg0, arg1) {
             arg0.getRandomValues(arg1);
         }, arguments); },
@@ -98,6 +130,10 @@ function __wbg_get_imports() {
         },
         __wbg_new_116be93542d39019: function() {
             const ret = new Array();
+            return ret;
+        },
+        __wbg_new_358857d90afd5a2d: function(arg0, arg1) {
+            const ret = new Error(getStringFromWasm0(arg0, arg1));
             return ret;
         },
         __wbg_new_ebe3e0f6837f0879: function() {

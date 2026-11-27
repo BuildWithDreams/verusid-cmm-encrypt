@@ -25,6 +25,30 @@
  * expects), and accepts `string` / `object` plaintext (auto-encoded as UTF-8
  * / JSON) in addition to raw bytes.
  */
+/** Inputs to raw Sapling recipient encryption. */
+export type EncryptForRecipientInput = {
+    /** Sapling diversifier in 22 hex characters. */
+    d: string;
+    /** Diversified transmission key in 64 hex characters. */
+    pk_d: string;
+    /** Raw plaintext, up to 16,368 bytes. */
+    plaintext: Uint8Array;
+    /** Return the symmetric key for this ciphertext. Defaults to false. */
+    includeSsk?: boolean;
+};
+/** Raw recipient ciphertext as lowercase hex. */
+export type EncryptForRecipientOutput = {
+    epk: string;
+    ciphertext: string;
+    ssk?: string;
+};
+export type RecipientEncryptionError = Error & {
+    readonly code: 'INVALID_RECIPIENT' | 'INVALID_INPUT' | 'ENCRYPT_FAILED';
+};
+/** Encrypt raw bytes to a Sapling recipient using a fresh ephemeral key. */
+export declare function encryptForRecipient(input: EncryptForRecipientInput): EncryptForRecipientOutput;
+/** Check the encoding and group membership of a Sapling recipient key. */
+export declare function isValidRecipientEpk(pkdHex: string): boolean;
 /** Input to [[encryptDescriptor]]. See individual field docs. */
 export type EncryptDescriptorInput = {
     /**

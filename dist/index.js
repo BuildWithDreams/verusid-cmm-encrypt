@@ -25,7 +25,54 @@
  * expects), and accepts `string` / `object` plaintext (auto-encoded as UTF-8
  * / JSON) in addition to raw bytes.
  */
-import { encryptPublicDecrypt } from './wasm/verusid_cmm_encrypt.js';
+import { isUint8Array } from 'node:util/types';
+import { encryptPublicDecrypt, encryptRecipientBytes, isValidRecipientEpkBytes, } from './wasm/verusid_cmm_encrypt.js';
+/** Encrypt raw bytes to a Sapling recipient using a fresh ephemeral key. */
+export function encryptForRecipient(input) {
+    let d, pk_d, plaintext, includeSsk;
+    try {
+        ({ d, pk_d, plaintext, includeSsk } = input);
+    }
+    catch {
+        throw recipientError('INVALID_INPUT', 'Expected a recipient encryption request object');
+    }
+    if (!isUint8Array(plaintext) || (includeSsk !== undefined && typeof includeSsk !== 'boolean')) {
+        throw recipientError('INVALID_INPUT', 'Expected Uint8Array plaintext and optional boolean includeSsk');
+    }
+    // Malformed *fields* are input errors; a well-formed key that is not a usable recipient
+    // (non-canonical, identity, wrong subgroup) is INVALID_RECIPIENT from the core validator.
+    if (!isFixedHex(d, 22) || !isFixedHex(pk_d, 64)) {
+        throw recipientError('INVALID_INPUT', 'Expected 22 hex characters for d and 64 for pk_d');
+    }
+    try {
+        const raw = encryptRecipientBytes(plaintext, Buffer.from(d, 'hex'), Buffer.from(pk_d, 'hex'), includeSsk === true);
+        const result = {
+            epk: Buffer.from(raw.epk).toString('hex'),
+            ciphertext: Buffer.from(raw.ciphertext).toString('hex'),
+        };
+        if (raw.ssk !== undefined)
+            result.ssk = Buffer.from(raw.ssk).toString('hex');
+        return result;
+    }
+    catch (error) {
+        if (error instanceof Error && 'code' in error &&
+            (error.code === 'INVALID_INPUT' || error.code === 'INVALID_RECIPIENT' ||
+                error.code === 'ENCRYPT_FAILED')) {
+            throw error;
+        }
+        throw recipientError('ENCRYPT_FAILED', 'Recipient encryption failed');
+    }
+}
+/** Check the encoding and group membership of a Sapling recipient key. */
+export function isValidRecipientEpk(pkdHex) {
+    return isFixedHex(pkdHex, 64) && isValidRecipientEpkBytes(Buffer.from(pkdHex, 'hex'));
+}
+function isFixedHex(value, length) {
+    return typeof value === 'string' && value.length === length && !/[^a-f\d]/i.test(value);
+}
+function recipientError(code, message) {
+    return Object.defineProperty(new Error(message), 'code', { value: code });
+}
 /**
  * Encrypt a payload into a `flags:13` public-decrypt cmm entry and its
  * accompanying data-deposit output(s). See [[EncryptDescriptorInput]] and

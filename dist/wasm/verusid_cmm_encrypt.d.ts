@@ -25,6 +25,12 @@ export interface EncryptPublicDecryptResult {
     ephemeralPkD: Uint8Array;
 }
 
+export interface RecipientCiphertextBytes {
+    epk: Uint8Array;
+    ciphertext: Uint8Array;
+    ssk?: Uint8Array;
+}
+
 
 
 /**
@@ -36,3 +42,13 @@ export interface EncryptPublicDecryptResult {
  * input field or composed layer.
  */
 export function encryptPublicDecrypt(request: EncryptPublicDecryptRequest): EncryptPublicDecryptResult;
+
+/**
+ * Encrypt raw bytes to a Sapling recipient and optionally return the SSK.
+ */
+export function encryptRecipientBytes(plaintext: Uint8Array, d: Uint8Array, pk_d: Uint8Array, include_ssk: boolean): RecipientCiphertextBytes;
+
+/**
+ * Check a candidate Sapling recipient key.
+ */
+export function isValidRecipientEpkBytes(pk_d: Uint8Array): boolean;
