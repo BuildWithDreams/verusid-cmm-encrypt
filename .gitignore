@@ -1,6 +1,5 @@
 node_modules/
 src/wasm/
-test/
 .DS_Store
 /target
 SESSION_RESUME.md
