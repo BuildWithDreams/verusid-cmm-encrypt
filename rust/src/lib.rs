@@ -12,7 +12,12 @@ pub mod data_descriptor;
 pub mod data_ref;
 pub mod ephemeral;
 pub mod notary_evidence;
+pub mod recipient;
 pub mod vdxf;
 pub mod wire;
 
 pub use api::{encrypt_public_decrypt, EncryptError, EncryptRequest, EncryptResult};
+pub use recipient::{
+    encrypt_for_recipient, is_valid_recipient_epk, validate_recipient, RecipientCiphertext,
+    RecipientEncryptError, MAX_RECIPIENT_PLAINTEXT_BYTES,
+};

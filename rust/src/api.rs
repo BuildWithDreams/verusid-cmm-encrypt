@@ -20,7 +20,7 @@ use jubjub::{AffinePoint, ExtendedPoint, Fr};
 use rand_core::{CryptoRng, RngCore};
 
 use crate::cc_script::write_eval_notary_evidence_script;
-use crate::crypto::{aead_encrypt, kdf_sapling, sapling_ka_agree, CryptoError};
+use crate::crypto::{kdf_sapling, sapling_ka_agree, CryptoError};
 use crate::data_descriptor::{
     wrap_encrypted_with_key, write_data_descriptor, DataDescriptor,
 };
@@ -29,6 +29,7 @@ use crate::ephemeral::{derive_epk, derive_g_d, generate_esk, EphemeralError};
 use crate::notary_evidence::{
     break_apart, write_notary_evidence_for_envelope, EvidenceEntry,
 };
+use crate::recipient::encrypt_envelope_pass1;
 use crate::vdxf::{write_cvdxf_data, DATA_DESCRIPTOR_KEY_LE, SIGNATURE_DATA_KEY_LE};
 use crate::wire::WireError;
 
@@ -337,16 +338,12 @@ fn encrypt_pass1_cdd<R>(
 where
     R: RngCore + CryptoRng,
 {
-    let esk = generate_esk(rng);
-    let epk = derive_epk(&esk, diversifier)?;
-    let dhsecret = sapling_ka_agree(&esk, pk_d_bytes)?;
-    let k = kdf_sapling(&dhsecret, &epk);
-    let ciphertext = aead_encrypt(&k, plaintext);
+    let encrypted = encrypt_envelope_pass1(plaintext, diversifier, pk_d_bytes, rng)?;
 
     let cdd = DataDescriptor {
         encrypted: true,
-        object_data: &ciphertext,
-        epk: Some(&epk),
+        object_data: &encrypted.ciphertext,
+        epk: Some(&encrypted.epk),
         version: 1,
         ..Default::default()
     };
