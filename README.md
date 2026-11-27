@@ -99,12 +99,61 @@ descriptors are encrypted to the same published IVK — one key decrypts both.
 Producing the signature bytes themselves is out of scope. Typical sources:
 the daemon's `signdata` RPC, or an offline `CVDXFSignatureData` composition.
 
+### Raw recipient encryption
+
+`encryptForRecipient` encrypts arbitrary bytes to a Sapling recipient without
+framing them in a cmm envelope and without publishing any viewing key. It is the
+primitive for payloads that will be carried by another container (for example an
+off-chain blob protocol) or stored anywhere that is not a Verus identity.
+
+```js
+const { epk, ciphertext } = encryptForRecipient({
+  d: 'f19d9b797e39f337445839',                                  // 11 bytes, 22 hex
+  pk_d: 'db4cd2b0aac4f7eb8ca131f16567c445a9555126d3c29f14e3d776e841ae7415', // 32 bytes, 64 hex
+  plaintext,                                                     // Uint8Array, ≤ 16,368 bytes
+});
+```
+
+The construction is the daemon's own (`pbaas/vdxf.cpp:637-677`): a fresh nonzero
+Sapling ephemeral scalar, `epk = ka_derive_public(d, esk)`, `K = KDF_Sapling(ka_agree(pk_d, esk), epk)`,
+then ChaCha20-Poly1305-IETF with a zero nonce and no AAD. The crate does not
+invent any of it; the envelope path and this path share one implementation, and
+the daemon fixture tests prove the envelope bytes still match v1.2.18 exactly.
+
+**Trust properties.** The recipient's incoming viewing key opens the ciphertext —
+there is no per-message key beyond that. Anyone holding the IVK for the Sapling
+key can decrypt every payload addressed to it, so a service that holds an IVK
+holds all traffic to that address. `includeSsk: true` additionally returns the
+per-ciphertext symmetric key, which grants access to that one ciphertext alone;
+it is off by default and callers should not persist it.
+
+**Size cap.** 16,368 plaintext bytes, inclusive; the ciphertext is plaintext +
+16-byte Poly1305 tag. Larger payloads must be chunked by the caller.
+
+**Byte order.** Verus presents Sapling material in `uint256::SetHex` order. The
+`pk_d` accepted here is the same byte string the address carries, and the RPC
+`ivk` for `decryptdata` must be given byte-reversed relative to the test vectors.
+This was measured against v1.2.18, not assumed.
+
+**Error codes.** Every failure is an `Error` with a readonly `code`:
+
+| Code | Meaning |
+| --- | --- |
+| `INVALID_INPUT` | Malformed request: not an object, non-`Uint8Array` plaintext, non-boolean `includeSsk`, `d`/`pk_d` not the right hex length, plaintext over the cap |
+| `INVALID_RECIPIENT` | Well-formed key that is not a usable recipient: non-canonical encoding, identity, wrong subgroup, or a diversifier without a valid `g_d` |
+| `ENCRYPT_FAILED` | The core could not complete the encryption |
+
+`isValidRecipientEpk(hex)` performs the key check alone, so callers can validate
+a recipient before composing a payload.
+
 ## What it does not do
 
 - Not a wallet. No key storage, no fee estimation, no broadcast.
 - Not a tx builder. Consumers wire the outputs into a v4 transaction themselves.
-- Not a Sapling-address encryption path. Only `flags:13` public-decrypt with
-  in-band ivk.
+- Not a Sapling-address *envelope* path: `encryptDescriptor` still emits only
+  `flags:13` public-decrypt with in-band ivk. Recipient-targeted encryption is
+  available as the raw `encryptForRecipient` primitive, which produces no
+  descriptor and no address handling of its own.
 - Does not produce signatures. Callers assemble signatures externally.
 
 ## Rust API
